@@ -81,10 +81,14 @@ pnpm meeting:new-evidence -- meet
 | 変数 | 用途 |
 | --- | --- |
 | `OPENAI_API_KEY` | サーバ側のみ。Realtime translation の client secret 発行に使用。 |
+| `OPENAI_PROJECT` | 任意。複数 project / legacy key で課金先 project を明示したい時に使用。 |
+| `OPENAI_ORGANIZATION` | 任意。複数 organization を使う時に使用。 |
+
+`429` で `quota` / `billing` と出る場合、API key は読めていますが OpenAI 側の利用枠か請求設定で止まっています。課金が有効な project の key に切り替えるか、必要なら `OPENAI_PROJECT=proj_...` を `.env` に追加して dev server を再起動してください。
 
 ## Vercel へのデプロイ
 
-このリポジトリを Vercel に接続し、Environment Variables に `OPENAI_API_KEY` を追加するだけです（ビルド設定はNext.js標準）。
+このリポジトリを Vercel に接続し、Environment Variables に `OPENAI_API_KEY` を追加するだけです（ビルド設定はNext.js標準）。複数 project を使う場合は `OPENAI_PROJECT` も追加してください。
 
 ```bash
 vercel --prod

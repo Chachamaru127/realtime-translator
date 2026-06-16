@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { buildOpenAIHeaders } from "@/lib/openaiServerHeaders";
 import { getServerEnv } from "@/lib/serverEnv";
 
 // Route Handlers are not cached by default; mark dynamic to be explicit since
@@ -38,10 +39,7 @@ export async function POST(request: NextRequest) {
   try {
     upstream = await fetch(CLIENT_SECRET_URL, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
+      headers: buildOpenAIHeaders(apiKey, "application/json"),
       body: JSON.stringify({
         session: {
           model: "gpt-realtime-translate",

@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { buildOpenAIHeaders } from "@/lib/openaiServerHeaders";
 import { getServerEnv } from "@/lib/serverEnv";
 
 export const dynamic = "force-dynamic";
@@ -67,10 +68,7 @@ export async function POST(request: NextRequest) {
   try {
     const res = await fetch(CHAT_URL, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
+      headers: buildOpenAIHeaders(apiKey, "application/json"),
       body: JSON.stringify({
         model: MODEL,
         reasoning_effort: "low",

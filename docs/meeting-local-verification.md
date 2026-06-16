@@ -35,6 +35,7 @@ meeting:record-observation-smoke: {"status":"ok","noOpRejected":true,"failResult
 meeting:proof-status-smoke: {"status":"ok","emptyRejected":true,"zoomOnlyRejected":true,"smokeOnlyRejected":true,"completeAccepted":true}
 meeting:next-proof-smoke: {"status":"ok","emptySuggestsZoom":true,"zoomOnlySuggestsMeet":true,"smokeOnlySuggestsEndurance":true,"pendingZoomUsesExistingFile":true,"commandPhasesAreExplicit":true,"runtimeEvidenceCommandsAreAfterLive":true,"textOutputExplainsCommandPhases":true,"textOutputIncludesApprovalGate":true,"enduranceUsesExistingSmokeFile":true,"completeSuggestsDone":true}
 meeting:system-env-smoke: {"status":"ok","nextEnvFallbackDetected":true,"nextEnvLocalFallbackDetected":true,"emptyEnvFallbackDetected":true,"secretNotPrinted":true}
+meeting:session-env-smoke: {"status":200,"hasClientSecret":true,"emptyEnvFallback":true,"scopedHeaders":true,"error":null}
 meeting:secret-scan: {"status":"ok","openAIKeysFound":0}
 saved route snapshot: docs/evidence/2026-06-16T03-49-21-route-snapshot.md
 saved Zoom prep pair: docs/evidence/2026-06-16T03-53-09-route-snapshot.md + docs/evidence/2026-06-16T03-53-09-zoom-smoke.md

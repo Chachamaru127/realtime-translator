@@ -135,6 +135,40 @@ function micErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "マイクを起動できませんでした。";
 }
 
+function realtimeConnectionErrorMessage(status: number, body: string): string {
+  const upstreamMessage = extractOpenAIErrorMessage(body);
+  if (
+    status === 429 &&
+    /quota|billing|insufficient_quota|exceeded/i.test(
+      upstreamMessage ?? body,
+    )
+  ) {
+    return [
+      "OpenAI の利用枠または請求設定で Realtime 翻訳を開始できませんでした。",
+      "課金が有効な project の API key に切り替えるか、OpenAI の billing / limits を確認してください。",
+      "複数 project を使っている場合は .env に OPENAI_PROJECT を設定してサーバーを再起動してください。",
+    ].join(" ");
+  }
+
+  if (status === 429) {
+    return [
+      "OpenAI Realtime のレート制限に達しました。",
+      "少し待ってから再試行するか、OpenAI の rate limit / usage limit を確認してください。",
+    ].join(" ");
+  }
+
+  return `翻訳の接続に失敗しました (${status})。${(upstreamMessage ?? body).slice(0, 160)}`;
+}
+
+function extractOpenAIErrorMessage(body: string): string | null {
+  try {
+    const data = JSON.parse(body) as { error?: { message?: unknown } };
+    return typeof data.error?.message === "string" ? data.error.message : null;
+  } catch {
+    return null;
+  }
+}
+
 export function useTranslator(audioRef: RefObject<HTMLAudioElement | null>) {
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -422,9 +456,7 @@ export function useTranslator(audioRef: RefObject<HTMLAudioElement | null>) {
       });
       if (!sdpRes.ok) {
         const txt = await sdpRes.text();
-        throw new Error(
-          `翻訳の接続に失敗しました (${sdpRes.status})。${txt.slice(0, 120)}`,
-        );
+        throw new Error(realtimeConnectionErrorMessage(sdpRes.status, txt));
       }
       await pc.setRemoteDescription({
         type: "answer",
