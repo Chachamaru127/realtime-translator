@@ -1,10 +1,11 @@
 import type { NextRequest } from "next/server";
+import { getServerEnv } from "@/lib/serverEnv";
 
 export const dynamic = "force-dynamic";
 
 const CHAT_URL = "https://api.openai.com/v1/chat/completions";
 // A normal text model is plenty for cleanup; override via env if desired.
-const MODEL = process.env.REFINE_MODEL || "gpt-5.5";
+const MODEL = getServerEnv("REFINE_MODEL") || "gpt-5.5";
 
 interface Line {
   source: string;
@@ -29,7 +30,7 @@ Using the whole window as context, re-edit ONLY the [EDIT] lines. For EACH [EDIT
 Return STRICT JSON of the form {"lines":[{"source":"...","target":"..."}, ...]} containing EXACTLY the [EDIT] lines, in the same order. For each line keep "source" in its original spoken language (do NOT translate it) and put the translation in "target" in that line's target language. If a line is already correct, return it unchanged. Output JSON only, no commentary.`;
 
 export async function POST(request: NextRequest) {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = getServerEnv("OPENAI_API_KEY");
 
   let body: RefineBody = {};
   try {

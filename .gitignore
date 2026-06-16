@@ -42,4 +42,6 @@ next-env.d.ts
 
 # local dev preview config (machine-specific paths)
 .claude/
+.harness-mem/
+.playwright-mcp/
 !.env.example

@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { getServerEnv } from "@/lib/serverEnv";
 
 // Route Handlers are not cached by default; mark dynamic to be explicit since
 // this mints a fresh, short-lived credential on every request.
@@ -17,7 +18,7 @@ interface SessionBody {
  * single-use ephemeral secret returned here.
  */
 export async function POST(request: NextRequest) {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = getServerEnv("OPENAI_API_KEY");
   if (!apiKey) {
     return Response.json(
       { error: "OPENAI_API_KEY is not configured on the server." },

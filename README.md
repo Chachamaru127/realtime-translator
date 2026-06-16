@@ -8,6 +8,7 @@ OpenAI の専用モデル [`gpt-realtime-translate`](https://developers.openai.c
 
 - **リアルタイム字幕がメイン** — 話した内容をその場で文字に起こして翻訳表示。**音声出力はワンタップでON/OFF**（既定はOFF）。
 - **会話モード（自動双方向 / LINE風チャット）** — 「会話を始める」を押したら、あとは日本語でも英語でもそのまま話すだけ。話した言語を自動判定して相手の言語へ翻訳し、**原文（上）＋訳文（下）を一文ごとに対応づけた吹き出し**を、話者の言語で左右に振り分けて表示します（ボタンの押し分け不要・マイク許可は1回だけ）。
+- **会議モード（Zoom / Google Meet）** — 自分のマイクと、BlackHole / Open-Loopback などの仮想入力へ流した相手音声を自動選択して別々に拾い、物理マイクは `私`、再生音声は `相手` として双方向翻訳します。
 - **ライブモード** — 講演・動画・会議など、聞こえてくる音声をひとつの言語へ連続翻訳（テロップ表示）。
 - **低遅延 / S2S** — STT→翻訳→TTSの分割ではなく、音声をそのまま翻訳。音声出力ON時は声のトーンも引き継がれます。
 - **スマホ最適化** — iOS/Android のモバイルWebで動作（マイクはタップ操作の直後に取得）。セーフエリア対応・大きなタップ領域・PWA対応。
@@ -38,6 +39,42 @@ pnpm dev
 ```
 
 [http://localhost:3000](http://localhost:3000) を開く（マイク利用のため `localhost` または HTTPS が必要）。
+
+## Zoom / Google Meet で使う
+
+ブラウザだけでは Zoom デスクトップアプリや Meet タブの相手音声を自動で直接取得できません。会議モードでは、OS 側で相手音声を BlackHole / Open-Loopback に流し、このアプリが `自分のマイク` と `相手音声` の最適候補を自動選択します。翻訳表示では、物理マイク由来を `私`、loopback 由来を `相手` として固定します。
+
+最小構成:
+
+1. Zoom / Meet のスピーカー出力を `BlackHole 16ch` または `BlackHole 2ch` にする。
+2. 自分も相手の声を聞く必要がある場合は、macOS の Multi-Output Device か Open-Loopback の monitor を使い、BlackHole とヘッドホン/スピーカーの両方へ出す。
+3. このアプリで `会議` モードを開き、`入力を自動選択` を ON のままにする。
+4. `入力チェック` で `私` と `相手` の入力レベルを確認する（OpenAI には接続しません）。
+5. `pnpm meeting:prepare-smoke -- zoom` または `-- meet` で local route を prefill した証跡を作る。
+6. OpenAI Realtime と外部 Zoom / Meet 音声を使う live run として明示承認してから、`会議通訳を始める` を押し、相手だけ / 自分だけ / 同時発話の 3 ケースで字幕が出ることを確認する。
+7. 10分 smoke / 30分 endurance の実行後、直前の `入力チェック` snapshot が `私` / `相手` とも 0% でない状態で `証跡コピー` を押し、`pnpm meeting:append-runtime-evidence docs/evidence/<timestamp>-zoom-smoke.md --clipboard` で `Runtime Evidence` table を evidence file 末尾に追記する。
+
+Open-Loopback を使う場合は `/Users/tachibanashuuta/LocalWork/Code/Open-Loopback` の `Meeting Mix` / monitor ルートを使い、会議アプリ音 + 自分のマイクを安定して扱える仮想入力として渡します。詳細は [`docs/meeting-audio-routing.md`](./docs/meeting-audio-routing.md)、ローカル証跡は [`docs/meeting-local-verification.md`](./docs/meeting-local-verification.md)、実通話の確認手順は [`docs/meeting-smoke-checklist.md`](./docs/meeting-smoke-checklist.md) を参照。
+
+ローカル preflight:
+
+```bash
+pnpm meeting:preflight
+pnpm meeting:device-selection-smoke
+pnpm meeting:verify
+pnpm meeting:route-snapshot
+pnpm meeting:prepare-smoke -- zoom
+pnpm meeting:backfill-evidence --all
+pnpm meeting:append-runtime-evidence docs/evidence/<timestamp>-zoom-smoke.md --clipboard
+pnpm meeting:record-observation docs/evidence/<timestamp>-zoom-smoke.md --live-approval="approved by operator at 2026-06-16T15:00:00+09:00" --speaker-route="BlackHole 16ch + headphones" --meeting-mic="HyperX SoloCast" --case="Remote only|pass|相手 lane 2 segments"
+pnpm meeting:check-evidence docs/evidence/<timestamp>-zoom-smoke.md
+pnpm meeting:next-proof --text
+pnpm meeting:proof-status
+pnpm meeting:new-evidence -- zoom
+pnpm meeting:new-evidence -- meet
+```
+
+`meeting:next-proof` は既定で機械処理しやすい JSON を出します。実通話中に読む場合は `--text` を付けると、approval gate / live 前コマンド / `証跡コピー` 後コマンド / 観察記録 / 記録後監査の順に表示されます。`commands` は live 前に実行できる placeholder なしのものです。clipboard を読む command は `runtimeEvidenceCommands` に入り、実通話後にアプリ内 `証跡コピー` を押してから実行します。`templateCommands` は `<...>` や `<timestamp>` を実観察値 / 生成後 path に置き換えてから実行し、その後 `finalCommands` で check / proof-status を走らせます。
 
 ### 環境変数
 

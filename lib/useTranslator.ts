@@ -1,9 +1,15 @@
 "use client";
 
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
+import {
+  prepareAudioInput,
+  prepareMeetingAudioInput,
+  type AudioCaptureConfig,
+} from "@/lib/audioCapture";
 import { detectPairLanguage } from "@/lib/languages";
 
 export type Status = "idle" | "connecting" | "live" | "error";
+export type SpeakerLane = "self" | "remote";
 
 export interface LangPair {
   a: string;
@@ -18,8 +24,18 @@ export interface Segment {
   rawTarget: string;
   outputLang: string;
   sourceLang: string | null;
+  speaker?: SpeakerLane;
   refined?: boolean;
   at: number;
+}
+
+export interface PartialSegment {
+  id: string;
+  source: string;
+  target: string;
+  outputLang: string;
+  sourceLang: string | null;
+  speaker?: SpeakerLane;
 }
 
 interface RealtimeEvent {
@@ -28,33 +44,82 @@ interface RealtimeEvent {
   error?: { message?: string };
 }
 
+type LaneKey = "auto" | SpeakerLane;
+
+interface SessionSpec {
+  stream: MediaStream;
+  outputLang: string;
+  lane: LaneKey;
+  primary: boolean;
+  sourceLang?: string;
+}
+
 interface Session {
   pc: RTCPeerConnection;
   dc: RTCDataChannel;
   outputLang: string;
+  lane: LaneKey;
+}
+
+interface LaneState {
+  source: string;
+  targets: Record<string, string>;
+  sourceLang: string | null;
+  listenerLang: string | null;
+  outputLang: string | null;
+  gapTimer: number | null;
 }
 
 const CLIENT_SECRET_URL = "/api/session";
 const CALLS_URL = "https://api.openai.com/v1/realtime/translations/calls";
 
-// The translation API has "no turn lifecycle" — it never tells us where an
-// utterance ends. We segment ourselves: finalize a displayed line after this
-// much silence, or immediately when the spoken language switches.
+// The translation API has no turn lifecycle, so utterances are finalized after
+// silence. Meeting mode keeps independent silence windows per input lane.
 const SEGMENT_GAP_MS = 1000;
-
-// A long-lived realtime session degrades over time (transcripts silently stop
-// arriving), so we never keep one around. We open a session up front (so the
-// very first word is captured cleanly), then *cut it and mint a brand-new one*
-// whenever the speaker has gone quiet for this long — i.e. on every pause.
-// Each fresh session re-detects the language and re-hits the API from scratch.
 const RECYCLE_SILENCE_MS = 2500;
-
-// Safety net for long, pause-less monologues: even without a real pause, force
-// a fresh session at the next segment boundary once the current one is this
-// old, so a single session is never relied on for long.
 const MAX_SESSION_MS = 30000;
+const LANES: LaneKey[] = ["auto", "self", "remote"];
 
 let segCounter = 0;
+
+function createLaneState(): LaneState {
+  return {
+    source: "",
+    targets: {},
+    sourceLang: null,
+    listenerLang: null,
+    outputLang: null,
+    gapTimer: null,
+  };
+}
+
+function createLaneStates(): Record<LaneKey, LaneState> {
+  return {
+    auto: createLaneState(),
+    self: createLaneState(),
+    remote: createLaneState(),
+  };
+}
+
+function clearLaneText(state: LaneState) {
+  state.source = "";
+  state.targets = {};
+  state.sourceLang = null;
+  state.listenerLang = null;
+  state.outputLang = null;
+}
+
+function firstTarget(state: LaneState): string {
+  const firstLang = Object.keys(state.targets)[0];
+  return firstLang ? (state.targets[firstLang] ?? "") : "";
+}
+
+function laneHasText(state: LaneState): boolean {
+  return Boolean(
+    state.source.trim() ||
+      Object.values(state.targets).some((value) => value.trim()),
+  );
+}
 
 function micErrorMessage(err: unknown): string {
   const name = err instanceof DOMException ? err.name : "";
@@ -74,6 +139,7 @@ export function useTranslator(audioRef: RefObject<HTMLAudioElement | null>) {
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
+  const [partials, setPartials] = useState<PartialSegment[]>([]);
   const [partialSource, setPartialSource] = useState("");
   const [partialTarget, setPartialTarget] = useState("");
   const [speaking, setSpeaking] = useState(false);
@@ -81,35 +147,32 @@ export function useTranslator(audioRef: RefObject<HTMLAudioElement | null>) {
   const [audioOn, setAudioOnState] = useState(false);
 
   const sessionsRef = useRef<Session[]>([]);
-  const streamRef = useRef<MediaStream | null>(null);
+  const sessionSpecsRef = useRef<SessionSpec[]>([]);
+  const inputStreamsRef = useRef<MediaStream[]>([]);
+  const captureRef = useRef<{ close: () => void } | null>(null);
+  const laneStatesRef = useRef<Record<LaneKey, LaneState>>(createLaneStates());
   const outLangsRef = useRef<string[]>([]);
   const singleRef = useRef(false);
   const audioOnRef = useRef(false);
   const runningRef = useRef(false);
   const openingRef = useRef(false);
   const sessionOpenedAtRef = useRef(0);
-
-  // Per-utterance buffers.
-  const srcBuf = useRef("");
-  const tgtBufs = useRef<Record<string, string>>({}); // by output language
-  const segLangRef = useRef<string | null>(null);
-  const listenerLangRef = useRef<string | null>(null);
   const autoPairRef = useRef<LangPair | null>(null);
-  const gapTimerRef = useRef<number | null>(null);
   const recycleTimerRef = useRef<number | null>(null);
 
-  // Latest-value refs let the timer callbacks and the data-channel handler call
-  // into these without forming a useCallback dependency cycle.
-  const finalizeRef = useRef<() => void>(() => {});
+  const finalizeLaneRef = useRef<(lane: LaneKey) => void>(() => {});
   const recycleRef = useRef<() => void>(() => {});
   const handleEventRef = useRef<
-    (evt: RealtimeEvent, lang: string, isPrimary: boolean) => void
+    (evt: RealtimeEvent, spec: SessionSpec) => void
   >(() => {});
 
   const clearTimers = useCallback(() => {
-    if (gapTimerRef.current != null) {
-      clearTimeout(gapTimerRef.current);
-      gapTimerRef.current = null;
+    for (const lane of LANES) {
+      const state = laneStatesRef.current[lane];
+      if (state.gapTimer != null) {
+        clearTimeout(state.gapTimer);
+        state.gapTimer = null;
+      }
     }
     if (recycleTimerRef.current != null) {
       clearTimeout(recycleTimerRef.current);
@@ -117,70 +180,117 @@ export function useTranslator(audioRef: RefObject<HTMLAudioElement | null>) {
     }
   }, []);
 
-  const finalize = useCallback(() => {
-    if (gapTimerRef.current != null) {
-      clearTimeout(gapTimerRef.current);
-      gapTimerRef.current = null;
-    }
-    const source = srcBuf.current.trim();
-    const lastSegLang = segLangRef.current;
+  const hasActiveLane = useCallback(
+    () => LANES.some((lane) => laneHasText(laneStatesRef.current[lane])),
+    [],
+  );
+
+  const publishPartials = useCallback(() => {
+    const states = laneStatesRef.current;
     const pair = autoPairRef.current;
+    const auto = states.auto;
+    const autoOutputLang =
+      auto.outputLang ?? auto.listenerLang ?? outLangsRef.current[0] ?? "";
 
-    let target = "";
-    let outputLang = outLangsRef.current[0] ?? "en";
-    let sourceLang: string | null = null;
+    setPartialSource(auto.source);
+    setPartialTarget(
+      autoOutputLang ? (auto.targets[autoOutputLang] ?? "") : firstTarget(auto),
+    );
 
-    if (pair) {
-      sourceLang =
-        detectPairLanguage(source, pair.a, pair.b) ?? lastSegLang ?? pair.a;
-      outputLang = sourceLang === pair.a ? pair.b : pair.a; // listener's language
-      target = (tgtBufs.current[outputLang] ?? "").trim();
-    } else {
-      outputLang = outLangsRef.current[0] ?? "en";
-      target = (tgtBufs.current[outputLang] ?? "").trim();
-    }
-
-    srcBuf.current = "";
-    tgtBufs.current = {};
-    segLangRef.current = null;
-    listenerLangRef.current = null;
-    setPartialSource("");
-    setPartialTarget("");
-
-    if (pair ? !source : !source && !target) return;
-
-    setSegments((prev) => [
-      ...prev,
-      {
-        id: `seg-${++segCounter}`,
-        source,
-        target,
-        rawSource: source,
-        rawTarget: target,
+    const meetingPartials: PartialSegment[] = [];
+    for (const lane of ["self", "remote"] as const) {
+      const state = states[lane];
+      if (!laneHasText(state)) continue;
+      const outputLang =
+        state.outputLang ??
+        (lane === "self" ? pair?.b : pair?.a) ??
+        outLangsRef.current[0] ??
+        "";
+      meetingPartials.push({
+        id: `partial-${lane}`,
+        speaker: lane,
+        source: state.source,
+        target: outputLang ? (state.targets[outputLang] ?? "") : firstTarget(state),
+        sourceLang: state.sourceLang,
         outputLang,
-        sourceLang,
-        at: Date.now(),
-      },
-    ]);
+      });
+    }
+    setPartials(meetingPartials);
   }, []);
 
-  const scheduleGap = useCallback(() => {
-    if (gapTimerRef.current != null) clearTimeout(gapTimerRef.current);
-    gapTimerRef.current = window.setTimeout(() => {
-      gapTimerRef.current = null;
-      finalizeRef.current();
-      setSpeaking(false);
-      // At a natural pause, refresh an aged session even if the longer
-      // recycle timer hasn't fired yet.
-      if (
-        sessionsRef.current.length &&
-        !openingRef.current &&
-        Date.now() - sessionOpenedAtRef.current > MAX_SESSION_MS
-      ) {
-        recycleRef.current();
+  const finalizeLane = useCallback(
+    (lane: LaneKey) => {
+      const state = laneStatesRef.current[lane];
+      if (state.gapTimer != null) {
+        clearTimeout(state.gapTimer);
+        state.gapTimer = null;
       }
-    }, SEGMENT_GAP_MS);
-  }, []);
+
+      const source = state.source.trim();
+      const pair = autoPairRef.current;
+      let target = "";
+      let outputLang = state.outputLang ?? outLangsRef.current[0] ?? "en";
+      let sourceLang = state.sourceLang;
+
+      if (lane === "auto") {
+        if (pair) {
+          sourceLang =
+            detectPairLanguage(source, pair.a, pair.b) ?? sourceLang ?? pair.a;
+          outputLang = sourceLang === pair.a ? pair.b : pair.a;
+          target = (state.targets[outputLang] ?? "").trim();
+        } else {
+          target = (state.targets[outputLang] ?? firstTarget(state)).trim();
+        }
+      } else {
+        target = (state.targets[outputLang] ?? firstTarget(state)).trim();
+      }
+
+      clearLaneText(state);
+      publishPartials();
+
+      if (!source && !target) return;
+
+      setSegments((prev) => [
+        ...prev,
+        {
+          id: `seg-${++segCounter}`,
+          source,
+          target,
+          rawSource: source,
+          rawTarget: target,
+          outputLang,
+          sourceLang,
+          speaker: lane === "auto" ? undefined : lane,
+          at: Date.now(),
+        },
+      ]);
+    },
+    [publishPartials],
+  );
+
+  const finalizeAll = useCallback(() => {
+    for (const lane of LANES) finalizeLane(lane);
+  }, [finalizeLane]);
+
+  const scheduleLaneGap = useCallback(
+    (lane: LaneKey) => {
+      const state = laneStatesRef.current[lane];
+      if (state.gapTimer != null) clearTimeout(state.gapTimer);
+      state.gapTimer = window.setTimeout(() => {
+        state.gapTimer = null;
+        finalizeLaneRef.current(lane);
+        setSpeaking(hasActiveLane());
+        if (
+          sessionsRef.current.length &&
+          !openingRef.current &&
+          Date.now() - sessionOpenedAtRef.current > MAX_SESSION_MS
+        ) {
+          recycleRef.current();
+        }
+      }, SEGMENT_GAP_MS);
+    },
+    [hasActiveLane],
+  );
 
   const scheduleRecycle = useCallback(() => {
     if (recycleTimerRef.current != null) clearTimeout(recycleTimerRef.current);
@@ -191,52 +301,56 @@ export function useTranslator(audioRef: RefObject<HTMLAudioElement | null>) {
   }, []);
 
   const handleEvent = useCallback(
-    (evt: RealtimeEvent, lang: string, isPrimary: boolean) => {
+    (evt: RealtimeEvent, spec: SessionSpec) => {
       const type = evt.type ?? "";
+      const state = laneStatesRef.current[spec.lane];
 
       if (type.endsWith("input_transcript.delta")) {
-        // Both sessions transcribe the same audio — only the primary feeds the
-        // source, to avoid double-counting.
-        if (!isPrimary) return;
+        if (!spec.primary) return;
         const delta = evt.delta ?? "";
-        const pair = autoPairRef.current;
-        if (pair && delta) {
-          const dLang = detectPairLanguage(delta, pair.a, pair.b);
-          if (dLang) {
-            // Other person started talking → close the previous line.
-            if (
-              segLangRef.current &&
-              dLang !== segLangRef.current &&
-              srcBuf.current.trim()
-            ) {
-              finalizeRef.current();
+        if (!delta) return;
+
+        if (spec.lane === "auto") {
+          const pair = autoPairRef.current;
+          if (pair) {
+            const detectedLang = detectPairLanguage(delta, pair.a, pair.b);
+            if (detectedLang) {
+              if (
+                state.sourceLang &&
+                detectedLang !== state.sourceLang &&
+                state.source.trim()
+              ) {
+                finalizeLaneRef.current("auto");
+              }
+              state.sourceLang = detectedLang;
+              state.listenerLang = detectedLang === pair.a ? pair.b : pair.a;
+              state.outputLang = state.listenerLang;
             }
-            segLangRef.current = dLang;
-            listenerLangRef.current = dLang === pair.a ? pair.b : pair.a;
-            setPartialTarget(tgtBufs.current[listenerLangRef.current] ?? "");
           }
+        } else {
+          state.sourceLang = spec.sourceLang ?? state.sourceLang;
+          state.outputLang = spec.outputLang;
         }
-        srcBuf.current += delta;
-        setPartialSource(srcBuf.current);
+
+        state.source += delta;
         setSpeaking(true);
-        scheduleGap();
+        publishPartials();
+        scheduleLaneGap(spec.lane);
         scheduleRecycle();
       } else if (type.endsWith("output_transcript.delta")) {
         const delta = evt.delta ?? "";
-        tgtBufs.current[lang] = (tgtBufs.current[lang] ?? "") + delta;
-        const pair = autoPairRef.current;
-        // Show the translation for the current listener (auto) / the only
-        // output (live).
-        if (!pair || lang === listenerLangRef.current) {
-          setPartialTarget(tgtBufs.current[lang]);
-        }
-        scheduleGap();
+        if (!delta) return;
+        state.outputLang = spec.outputLang;
+        state.targets[spec.outputLang] =
+          (state.targets[spec.outputLang] ?? "") + delta;
+        publishPartials();
+        scheduleLaneGap(spec.lane);
         scheduleRecycle();
       } else if (type === "error" || evt.error) {
         setError(evt.error?.message ?? "Realtime error");
       }
     },
-    [scheduleGap, scheduleRecycle],
+    [publishPartials, scheduleLaneGap, scheduleRecycle],
   );
 
   const applyAudio = useCallback(() => {
@@ -255,17 +369,12 @@ export function useTranslator(audioRef: RefObject<HTMLAudioElement | null>) {
     [applyAudio],
   );
 
-  // Mint a fresh realtime translation session for one output language. Always a
-  // new credential, peer connection and language detection — never reused.
   const buildSession = useCallback(
-    async (lang: string, isPrimary: boolean): Promise<Session> => {
-      const stream = streamRef.current;
-      if (!stream) throw new Error("マイクが初期化されていません。");
-
+    async (spec: SessionSpec): Promise<Session> => {
       const tokenRes = await fetch(CLIENT_SECRET_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ outputLanguage: lang }),
+        body: JSON.stringify({ outputLanguage: spec.outputLang }),
       });
       const tokenData = (await tokenRes.json()) as {
         clientSecret?: string;
@@ -276,8 +385,6 @@ export function useTranslator(audioRef: RefObject<HTMLAudioElement | null>) {
       }
 
       const pc = new RTCPeerConnection();
-      // Only play translated audio when there's a single output (live mode);
-      // in two-way mode there are two competing outputs, so audio stays off.
       if (singleRef.current) {
         pc.ontrack = (e) => {
           const el = audioRef.current;
@@ -287,15 +394,16 @@ export function useTranslator(audioRef: RefObject<HTMLAudioElement | null>) {
           }
         };
       }
-      for (const track of stream.getAudioTracks()) pc.addTrack(track, stream);
+      for (const track of spec.stream.getAudioTracks()) {
+        pc.addTrack(track, spec.stream);
+      }
 
       const dc = pc.createDataChannel("oai-events");
       dc.onmessage = (e) => {
         try {
           handleEventRef.current(
             JSON.parse(e.data as string) as RealtimeEvent,
-            lang,
-            isPrimary,
+            spec,
           );
         } catch {
           // ignore non-JSON frames
@@ -322,7 +430,7 @@ export function useTranslator(audioRef: RefObject<HTMLAudioElement | null>) {
         type: "answer",
         sdp: await sdpRes.text(),
       });
-      return { pc, dc, outputLang: lang };
+      return { pc, dc, outputLang: spec.outputLang, lane: spec.lane };
     },
     [audioRef, applyAudio],
   );
@@ -342,14 +450,12 @@ export function useTranslator(audioRef: RefObject<HTMLAudioElement | null>) {
 
   const openSessions = useCallback(async (): Promise<boolean> => {
     if (openingRef.current || sessionsRef.current.length) return true;
-    if (!runningRef.current || !streamRef.current) return false;
+    if (!runningRef.current || sessionSpecsRef.current.length === 0) return false;
     openingRef.current = true;
     try {
-      const langs = outLangsRef.current;
       const sessions = await Promise.all(
-        langs.map((lang, i) => buildSession(lang, i === 0)),
+        sessionSpecsRef.current.map((spec) => buildSession(spec)),
       );
-      // Listening may have stopped (or been re-cut) while we negotiated.
       if (!runningRef.current) {
         for (const s of sessions) {
           try {
@@ -372,20 +478,16 @@ export function useTranslator(audioRef: RefObject<HTMLAudioElement | null>) {
     }
   }, [buildSession]);
 
-  // Cut the current session(s) and immediately mint fresh ones. Called on each
-  // sustained pause and when a session has aged out.
   const recycle = useCallback(() => {
     if (!runningRef.current || openingRef.current) return;
-    finalizeRef.current();
+    finalizeAll();
     closeSessions();
     setSpeaking(false);
     void openSessions();
-  }, [closeSessions, openSessions]);
+  }, [closeSessions, finalizeAll, openSessions]);
 
-  // Keep the latest-value refs in sync (used by timers / the data channel to
-  // avoid useCallback dependency cycles).
   useEffect(() => {
-    finalizeRef.current = finalize;
+    finalizeLaneRef.current = finalizeLane;
     handleEventRef.current = handleEvent;
     recycleRef.current = recycle;
   });
@@ -395,20 +497,31 @@ export function useTranslator(audioRef: RefObject<HTMLAudioElement | null>) {
     openingRef.current = false;
     clearTimers();
     closeSessions();
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    srcBuf.current = "";
-    tgtBufs.current = {};
-    segLangRef.current = null;
-    listenerLangRef.current = null;
+    captureRef.current?.close();
+    captureRef.current = null;
+    sessionSpecsRef.current = [];
+    inputStreamsRef.current = [];
+    laneStatesRef.current = createLaneStates();
+    setPartials([]);
+    setPartialSource("");
+    setPartialTarget("");
   }, [clearTimers, closeSessions]);
 
   const start = useCallback(
-    async (outputLangs: string[]) => {
-      if (runningRef.current || sessionsRef.current.length) return;
+    async (
+      outputLangs: string[],
+      inputConfig: AudioCaptureConfig = { mode: "microphone" },
+      meetingPair?: LangPair,
+    ) => {
+      if (runningRef.current || sessionsRef.current.length) return false;
       setError(null);
+      setPartials([]);
+      setPartialSource("");
+      setPartialTarget("");
+      laneStatesRef.current = createLaneStates();
       outLangsRef.current = outputLangs;
-      singleRef.current = outputLangs.length === 1;
+      singleRef.current =
+        inputConfig.mode !== "meeting" && outputLangs.length === 1;
       setMutedState(false);
 
       if (!navigator.mediaDevices?.getUserMedia) {
@@ -416,51 +529,72 @@ export function useTranslator(audioRef: RefObject<HTMLAudioElement | null>) {
           "このブラウザでは音声入力を利用できません。HTTPSのSafari/Chromeなど対応ブラウザで開いてください（アプリ内ブラウザでは動かないことがあります）。",
         );
         setStatus("error");
-        return;
+        return false;
       }
       setStatus("connecting");
 
-      let stream: MediaStream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-        });
+        if (inputConfig.mode === "meeting") {
+          const pair =
+            meetingPair ??
+            autoPairRef.current ??
+            ({ a: outputLangs[0] ?? "ja", b: outputLangs[1] ?? "en" } satisfies LangPair);
+          const capture = await prepareMeetingAudioInput(inputConfig);
+          captureRef.current = capture;
+          inputStreamsRef.current = [capture.micStream, capture.meetingStream];
+          sessionSpecsRef.current = [
+            {
+              stream: capture.micStream,
+              outputLang: pair.b,
+              lane: "self",
+              primary: true,
+              sourceLang: pair.a,
+            },
+            {
+              stream: capture.meetingStream,
+              outputLang: pair.a,
+              lane: "remote",
+              primary: true,
+              sourceLang: pair.b,
+            },
+          ];
+        } else {
+          const capture = await prepareAudioInput(inputConfig);
+          captureRef.current = capture;
+          inputStreamsRef.current = [capture.stream];
+          sessionSpecsRef.current = outputLangs.map((lang, index) => ({
+            stream: capture.stream,
+            outputLang: lang,
+            lane: "auto",
+            primary: index === 0,
+          }));
+        }
       } catch (err) {
-        const name = err instanceof DOMException ? err.name : "";
-        if (name === "NotAllowedError" || name === "SecurityError") {
-          setError(micErrorMessage(err));
-          setStatus("error");
-          return;
-        }
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        } catch (err2) {
-          setError(micErrorMessage(err2));
-          setStatus("error");
-          return;
-        }
+        setError(micErrorMessage(err));
+        setStatus("error");
+        return false;
       }
-      streamRef.current = stream;
       runningRef.current = true;
 
       const ok = await openSessions();
       if (ok) {
         setStatus("live");
+        return true;
       } else if (runningRef.current) {
         setStatus("error");
         cleanup();
       }
+      return false;
     },
-    [openSessions, cleanup],
+    [cleanup, openSessions],
   );
 
   const setMuted = useCallback((m: boolean) => {
-    const stream = streamRef.current;
-    if (stream) stream.getAudioTracks().forEach((t) => (t.enabled = !m));
+    for (const stream of inputStreamsRef.current) {
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = !m;
+      });
+    }
     setMutedState(m);
   }, []);
 
@@ -469,12 +603,12 @@ export function useTranslator(audioRef: RefObject<HTMLAudioElement | null>) {
   }, []);
 
   const stop = useCallback(() => {
-    finalize();
+    finalizeAll();
     cleanup();
     setStatus("idle");
     setSpeaking(false);
     setMutedState(false);
-  }, [cleanup, finalize]);
+  }, [cleanup, finalizeAll]);
 
   const clear = useCallback(() => setSegments([]), []);
 
@@ -488,6 +622,7 @@ export function useTranslator(audioRef: RefObject<HTMLAudioElement | null>) {
     status,
     error,
     segments,
+    partials,
     partialSource,
     partialTarget,
     speaking,
