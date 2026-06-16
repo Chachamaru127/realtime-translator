@@ -42,6 +42,8 @@ Zoom / Meet / 30分 endurance が揃ったかは `pnpm meeting:proof-status` で
 7. 実行中または実行後に `証跡コピー` を押すと、現在の app URL / browser / `自分のマイク` / `相手音声` / 入力チェック snapshot / duration / lane counts を `Runtime Evidence` table として secret なしで記録できる。`pnpm meeting:append-runtime-evidence <smoke.md> --clipboard` で evidence file 末尾へ追記する。
 8. 字幕が出ない場合だけ、`候補更新` を押して手動選択へ切り替える。
 
+YouTube / Chrome で quick test する場合も、Chrome の再生音が BlackHole に流れている必要がある。macOS の default output が `MacBook Proのスピーカー` のままだと、アプリ側の `相手音声=BlackHole 16ch` は無音になる。`入力チェック` で `相手` メーターが 0% の時は、Chrome / Zoom / Meet の speaker route を BlackHole または BlackHole を含む Multi-Output Device に直す。
+
 ## Open-Loopback を使う場合
 
 `/Users/tachibanashuuta/LocalWork/Code/Open-Loopback` は、BlackHole だけでは monitor や no-echo lane が扱いづらい場合の補助 route として使う。

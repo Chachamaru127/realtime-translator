@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
+  isLoopbackDeviceLabel,
   pickDefaultMicDevice,
   pickMeetingDevice,
 } from "../lib/audioDeviceSelection.mjs";
@@ -21,8 +22,10 @@ export function buildMeetingSystemSnapshot() {
   const zoomAudio = findDevice(devices, /zoomaudiodevice|zoom.*audio/i);
   const remoteCandidate = pickMeetingDevice(inputs);
   const preferredMic = pickDefaultMicDevice(inputs);
+  const defaultOutput = outputs.find((device) => device.defaultOutput);
   const env = checkEnv();
   const devServer = findDevServer();
+  const routeNotes = buildRouteNotes({ defaultOutput, remoteCandidate });
   const checks = [
     ["BlackHole 16ch input/output", Boolean(blackHole16?.input && blackHole16?.output)],
     ["BlackHole 2ch installed", Boolean(blackHole2)],
@@ -44,7 +47,9 @@ export function buildMeetingSystemSnapshot() {
       blackHole2,
       openLoopback,
       zoomAudio,
+      defaultOutput,
     },
+    routeNotes,
     env,
     devServer,
     laneMap: {
@@ -52,6 +57,20 @@ export function buildMeetingSystemSnapshot() {
       remote: "remote audio/playback -> translator remote lane",
     },
   };
+}
+
+function buildRouteNotes({ defaultOutput, remoteCandidate }) {
+  const notes = [];
+  if (
+    defaultOutput &&
+    remoteCandidate &&
+    !isLoopbackDeviceLabel(defaultOutput.label)
+  ) {
+    notes.push(
+      `System default output is ${defaultOutput.name}; Chrome/YouTube audio will not reach ${remoteCandidate.name} unless Chrome or the meeting speaker output is routed to BlackHole or a Multi-Output device that includes it.`,
+    );
+  }
+  return notes;
 }
 
 export function readAudioDevices() {

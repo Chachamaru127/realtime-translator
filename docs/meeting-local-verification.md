@@ -22,6 +22,8 @@ PASS OPENAI_API_KEY server fallback
 PASS Dev server for this worktree
 remote audio: BlackHole 16ch
 local mic: HyperX SoloCast
+system output: MacBook Proのスピーカー
+route note: Chrome/YouTube audio will not reach BlackHole 16ch until Chrome or the meeting speaker output is routed to BlackHole/Multi-Output
 lane map: 私=local mic -> self lane; 相手=remote audio/playback -> remote lane
 env file: /Users/tachibanashuuta/LocalWork/Code/realtime-translator/.env
 dev url: http://localhost:3002
@@ -43,7 +45,7 @@ saved Google Meet prep pair: docs/evidence/2026-06-16T04-07-11-route-snapshot.md
 backfilled existing smoke templates: app url / translator mic / translator remote / local preflight / blank live approval row when missing
 lint: pass
 build: pass
-meeting:session-env-smoke: {"status":200,"hasClientSecret":true,"emptyEnvFallback":true,"error":null}
+meeting:session-env-smoke: {"status":200,"hasClientSecret":true,"emptyEnvFallback":true,"scopedHeaders":true,"error":null}
 ```
 
 ## Browser Smoke

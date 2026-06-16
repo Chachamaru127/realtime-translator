@@ -873,6 +873,14 @@ function MeetingInputPanel({
   const selectedMeeting = meetingDeviceId
     ? devices.find((device) => device.deviceId === meetingDeviceId)
     : null;
+  const remoteInputSilent =
+    (inputCheck.status === "checking" || inputCheck.status === "checked") &&
+    inputCheck.meeting <= 0.02;
+  const remoteLaneSilent =
+    sessionStats.elapsed !== "00:00" &&
+    sessionStats.remoteSegments === 0 &&
+    (sessionStats.selfSegments > 0 || sessionStats.selfActive);
+  const showRemoteRouteHint = remoteInputSilent || remoteLaneSilent;
   return (
     <section className="meetpanel" aria-label="会議音声入力">
       <div className="meetauto">
@@ -964,6 +972,14 @@ function MeetingInputPanel({
         )}
         {inputCheck.status === "error" && inputCheck.message && (
           <p className="metererror">{inputCheck.message}</p>
+        )}
+        {showRemoteRouteHint && (
+          <p className="meterhint">
+            相手音声が
+            {selectedMeeting ? ` ${selectedMeeting.label} ` : " loopback "}
+            に入っていません。Chrome / Zoom / Meet のスピーカー出力を BlackHole
+            または BlackHole を含む Multi-Output にしてください。
+          </p>
         )}
       </div>
     </section>

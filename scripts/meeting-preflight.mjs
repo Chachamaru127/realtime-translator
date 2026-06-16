@@ -7,8 +7,16 @@ import {
 
 function main() {
   const snapshot = buildMeetingSystemSnapshot();
-  const { checks, candidates, env, devServer, inputs, outputs, laneMap } =
-    snapshot;
+  const {
+    checks,
+    candidates,
+    env,
+    devServer,
+    inputs,
+    outputs,
+    laneMap,
+    routeNotes,
+  } = snapshot;
 
   console.log("Meeting preflight");
   console.log("=================");
@@ -20,8 +28,15 @@ function main() {
   console.log("-------------------");
   printDevice("remote audio", candidates.remoteCandidate);
   printDevice("local mic", candidates.preferredMic);
+  printDevice("system output", candidates.defaultOutput);
   printDevice("Open-Loopback", candidates.openLoopback);
   printDevice("ZoomAudioDevice", candidates.zoomAudio);
+  if (routeNotes.length > 0) {
+    console.log("");
+    console.log("Route notes");
+    console.log("-----------");
+    for (const note of routeNotes) console.log(`NOTE ${note}`);
+  }
   console.log("");
   console.log("Lane map");
   console.log("--------");

@@ -538,6 +538,16 @@ select {
   font-size: 12px;
   line-height: 1.45;
 }
+.meterhint {
+  margin-top: 8px;
+  color: #ffe9c2;
+  background: rgba(255, 184, 77, 0.1);
+  border: 1px solid rgba(255, 184, 77, 0.26);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+}
 
 /* ---------------- Transcript ---------------- */
 

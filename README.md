@@ -54,6 +54,8 @@ pnpm dev
 6. OpenAI Realtime と外部 Zoom / Meet 音声を使う live run として明示承認してから、`会議通訳を始める` を押し、相手だけ / 自分だけ / 同時発話の 3 ケースで字幕が出ることを確認する。
 7. 10分 smoke / 30分 endurance の実行後、直前の `入力チェック` snapshot が `私` / `相手` とも 0% でない状態で `証跡コピー` を押し、`pnpm meeting:append-runtime-evidence docs/evidence/<timestamp>-zoom-smoke.md --clipboard` で `Runtime Evidence` table を evidence file 末尾に追記する。
 
+YouTube / Chrome 音声でテストする場合も同じで、Chrome の再生先が通常スピーカーのままだと `相手` lane は無音です。macOS の出力、または Chrome / 会議アプリ側の speaker を BlackHole か BlackHole を含む Multi-Output Device に向けてから `入力チェック` で `相手` メーターが動くことを確認してください。
+
 Open-Loopback を使う場合は `/Users/tachibanashuuta/LocalWork/Code/Open-Loopback` の `Meeting Mix` / monitor ルートを使い、会議アプリ音 + 自分のマイクを安定して扱える仮想入力として渡します。詳細は [`docs/meeting-audio-routing.md`](./docs/meeting-audio-routing.md)、ローカル証跡は [`docs/meeting-local-verification.md`](./docs/meeting-local-verification.md)、実通話の確認手順は [`docs/meeting-smoke-checklist.md`](./docs/meeting-smoke-checklist.md) を参照。
 
 ローカル preflight:
