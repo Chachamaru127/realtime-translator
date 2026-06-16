@@ -34,7 +34,7 @@ Zoom / Meet / 30分 endurance が揃ったかは `pnpm meeting:proof-status` で
 ## BlackHole 最小構成
 
 1. Zoom / Google Meet のスピーカー出力を `BlackHole 16ch` にする。
-2. 自分も相手音声を聞く場合は、macOS の Multi-Output Device で `BlackHole 16ch` とヘッドホン/スピーカーを同時出力にする。
+2. 自分も相手音声を聞くため、`pnpm meeting:monitor:start` で Open-Loopback monitor bridge を起動する。これは `BlackHole 16ch` の入力を `MacBook Proのスピーカー` などの物理 output へ返す。
 3. このアプリで `会議` を選ぶ。
 4. `入力を自動選択` を ON のまま `会議通訳を始める` を押す。
 5. 開始前に `入力チェック` を押すと、OpenAI に接続せず `私` と `相手` の入力レベルだけ確認できる。会議通訳開始時には meter を止め、最後のレベルを `checked` snapshot として保持する。
@@ -42,7 +42,17 @@ Zoom / Meet / 30分 endurance が揃ったかは `pnpm meeting:proof-status` で
 7. 実行中または実行後に `証跡コピー` を押すと、現在の app URL / browser / `自分のマイク` / `相手音声` / 入力チェック snapshot / duration / lane counts を `Runtime Evidence` table として secret なしで記録できる。`pnpm meeting:append-runtime-evidence <smoke.md> --clipboard` で evidence file 末尾へ追記する。
 8. 字幕が出ない場合だけ、`候補更新` を押して手動選択へ切り替える。
 
-YouTube / Chrome で quick test する場合も、Chrome の再生音が BlackHole に流れている必要がある。macOS の default output が `MacBook Proのスピーカー` のままだと、アプリ側の `相手音声=BlackHole 16ch` は無音になる。`入力チェック` で `相手` メーターが 0% の時は、Chrome / Zoom / Meet の speaker route を BlackHole または BlackHole を含む Multi-Output Device に直す。
+YouTube / Chrome で quick test する場合も、Chrome の再生音が BlackHole に流れている必要がある。macOS の default output が `MacBook Proのスピーカー` のままだと、アプリ側の `相手音声=BlackHole 16ch` は無音になる。逆に macOS の default output を `BlackHole 16ch` にすると翻訳は動くが人間には聞こえない。`pnpm meeting:monitor:start` で `BlackHole 16ch -> 物理 output` の bridge を起動し、`pnpm meeting:monitor:status` と `pnpm meeting:preflight` で monitor bridge が running になっていることを確認する。
+
+Monitor bridge:
+
+```bash
+pnpm meeting:monitor:start   # BlackHole -> physical output を常駐起動
+pnpm meeting:monitor:status  # pid / 入出力を確認
+pnpm meeting:monitor:stop    # 終了
+```
+
+物理 output を固定したい場合は、`MEETING_MONITOR_OUTPUT_DEVICE="MacBook Proのスピーカー" pnpm meeting:monitor:start` のように指定する。
 
 ## Open-Loopback を使う場合
 

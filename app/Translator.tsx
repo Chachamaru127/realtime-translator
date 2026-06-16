@@ -978,7 +978,7 @@ function MeetingInputPanel({
             相手音声が
             {selectedMeeting ? ` ${selectedMeeting.label} ` : " loopback "}
             に入っていません。Chrome / Zoom / Meet のスピーカー出力を BlackHole
-            または BlackHole を含む Multi-Output にしてください。
+            にし、聞こえない時は Open-Loopback monitor bridge を使ってください。
           </p>
         )}
       </div>

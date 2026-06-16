@@ -1,10 +1,21 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   isLoopbackDeviceLabel,
   pickDefaultMicDevice,
   pickMeetingDevice,
 } from "../lib/audioDeviceSelection.mjs";
 import { loadServerFallbackEnv } from "../lib/serverEnvConfig.mjs";
+
+const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+const monitorBridgeStatePath = join(
+  repoRoot,
+  ".local",
+  "meeting-monitor-bridge",
+  "state.json",
+);
 
 const SILENT_ENV_LOG = {
   info() {},
@@ -25,7 +36,12 @@ export function buildMeetingSystemSnapshot() {
   const defaultOutput = outputs.find((device) => device.defaultOutput);
   const env = checkEnv();
   const devServer = findDevServer();
-  const routeNotes = buildRouteNotes({ defaultOutput, remoteCandidate });
+  const monitorBridge = readMonitorBridgeStatus();
+  const routeNotes = buildRouteNotes({
+    defaultOutput,
+    remoteCandidate,
+    monitorBridge,
+  });
   const checks = [
     ["BlackHole 16ch input/output", Boolean(blackHole16?.input && blackHole16?.output)],
     ["BlackHole 2ch installed", Boolean(blackHole2)],
@@ -49,6 +65,7 @@ export function buildMeetingSystemSnapshot() {
       zoomAudio,
       defaultOutput,
     },
+    monitorBridge,
     routeNotes,
     env,
     devServer,
@@ -59,8 +76,23 @@ export function buildMeetingSystemSnapshot() {
   };
 }
 
-function buildRouteNotes({ defaultOutput, remoteCandidate }) {
+function buildRouteNotes({ defaultOutput, remoteCandidate, monitorBridge }) {
   const notes = [];
+  if (
+    defaultOutput &&
+    remoteCandidate &&
+    isLoopbackDeviceLabel(defaultOutput.label) &&
+    !monitorBridge.running
+  ) {
+    notes.push(
+      `System default output is ${defaultOutput.name}; translation can hear Chrome/YouTube, but you cannot hear it until monitor bridge is running. Run pnpm meeting:monitor:start to bridge ${remoteCandidate.name} to a physical speaker/headphones.`,
+    );
+  }
+  if (monitorBridge.running) {
+    notes.push(
+      `Monitor bridge is running: ${monitorBridge.inputDeviceName} -> ${monitorBridge.outputDeviceName} (pid ${monitorBridge.pid}).`,
+    );
+  }
   if (
     defaultOutput &&
     remoteCandidate &&
@@ -71,6 +103,19 @@ function buildRouteNotes({ defaultOutput, remoteCandidate }) {
     );
   }
   return notes;
+}
+
+export function readMonitorBridgeStatus() {
+  let state = null;
+  try {
+    state = JSON.parse(readFileSync(monitorBridgeStatePath, "utf8"));
+  } catch {
+    return { running: false };
+  }
+  return {
+    ...state,
+    running: isPidRunning(state.pid),
+  };
 }
 
 export function readAudioDevices() {
@@ -173,5 +218,15 @@ function processCwd(pid) {
       ?.slice(1);
   } catch {
     return null;
+  }
+}
+
+function isPidRunning(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
   }
 }

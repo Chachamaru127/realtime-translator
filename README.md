@@ -47,14 +47,14 @@ pnpm dev
 最小構成:
 
 1. Zoom / Meet のスピーカー出力を `BlackHole 16ch` または `BlackHole 2ch` にする。
-2. 自分も相手の声を聞く必要がある場合は、macOS の Multi-Output Device か Open-Loopback の monitor を使い、BlackHole とヘッドホン/スピーカーの両方へ出す。
+2. 自分も相手の声を聞くため、`pnpm meeting:monitor:start` で Open-Loopback monitor bridge を起動する。これは `BlackHole 16ch -> MacBook Proのスピーカー` のように、人間用の monitor へ音を返す。
 3. このアプリで `会議` モードを開き、`入力を自動選択` を ON のままにする。
 4. `入力チェック` で `私` と `相手` の入力レベルを確認する（OpenAI には接続しません）。
 5. `pnpm meeting:prepare-smoke -- zoom` または `-- meet` で local route を prefill した証跡を作る。
 6. OpenAI Realtime と外部 Zoom / Meet 音声を使う live run として明示承認してから、`会議通訳を始める` を押し、相手だけ / 自分だけ / 同時発話の 3 ケースで字幕が出ることを確認する。
 7. 10分 smoke / 30分 endurance の実行後、直前の `入力チェック` snapshot が `私` / `相手` とも 0% でない状態で `証跡コピー` を押し、`pnpm meeting:append-runtime-evidence docs/evidence/<timestamp>-zoom-smoke.md --clipboard` で `Runtime Evidence` table を evidence file 末尾に追記する。
 
-YouTube / Chrome 音声でテストする場合も同じで、Chrome の再生先が通常スピーカーのままだと `相手` lane は無音です。macOS の出力、または Chrome / 会議アプリ側の speaker を BlackHole か BlackHole を含む Multi-Output Device に向けてから `入力チェック` で `相手` メーターが動くことを確認してください。
+YouTube / Chrome 音声でテストする場合も同じで、Chrome の再生先が通常スピーカーのままだと `相手` lane は無音です。macOS の出力、または Chrome / 会議アプリ側の speaker を BlackHole に向け、`pnpm meeting:monitor:start` で Open-Loopback から実スピーカー/ヘッドホンへ返してください。Multi-Output Device でも代替できますが、この repo では Open-Loopback monitor bridge を優先します。
 
 Open-Loopback を使う場合は `/Users/tachibanashuuta/LocalWork/Code/Open-Loopback` の `Meeting Mix` / monitor ルートを使い、会議アプリ音 + 自分のマイクを安定して扱える仮想入力として渡します。詳細は [`docs/meeting-audio-routing.md`](./docs/meeting-audio-routing.md)、ローカル証跡は [`docs/meeting-local-verification.md`](./docs/meeting-local-verification.md)、実通話の確認手順は [`docs/meeting-smoke-checklist.md`](./docs/meeting-smoke-checklist.md) を参照。
 
@@ -74,6 +74,9 @@ pnpm meeting:next-proof --text
 pnpm meeting:proof-status
 pnpm meeting:new-evidence -- zoom
 pnpm meeting:new-evidence -- meet
+pnpm meeting:monitor:start
+pnpm meeting:monitor:status
+pnpm meeting:monitor:stop
 ```
 
 `meeting:next-proof` は既定で機械処理しやすい JSON を出します。実通話中に読む場合は `--text` を付けると、approval gate / live 前コマンド / `証跡コピー` 後コマンド / 観察記録 / 記録後監査の順に表示されます。`commands` は live 前に実行できる placeholder なしのものです。clipboard を読む command は `runtimeEvidenceCommands` に入り、実通話後にアプリ内 `証跡コピー` を押してから実行します。`templateCommands` は `<...>` や `<timestamp>` を実観察値 / 生成後 path に置き換えてから実行し、その後 `finalCommands` で check / proof-status を走らせます。

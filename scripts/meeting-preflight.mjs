@@ -15,6 +15,7 @@ function main() {
     inputs,
     outputs,
     laneMap,
+    monitorBridge,
     routeNotes,
   } = snapshot;
 
@@ -31,6 +32,13 @@ function main() {
   printDevice("system output", candidates.defaultOutput);
   printDevice("Open-Loopback", candidates.openLoopback);
   printDevice("ZoomAudioDevice", candidates.zoomAudio);
+  console.log(
+    `monitor bridge: ${
+      monitorBridge.running
+        ? `${monitorBridge.inputDeviceName} -> ${monitorBridge.outputDeviceName} (pid ${monitorBridge.pid})`
+        : "not running"
+    }`,
+  );
   if (routeNotes.length > 0) {
     console.log("");
     console.log("Route notes");

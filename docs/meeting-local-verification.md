@@ -22,12 +22,14 @@ PASS OPENAI_API_KEY server fallback
 PASS Dev server for this worktree
 remote audio: BlackHole 16ch
 local mic: HyperX SoloCast
-system output: MacBook Proのスピーカー
-route note: Chrome/YouTube audio will not reach BlackHole 16ch until Chrome or the meeting speaker output is routed to BlackHole/Multi-Output
+system output: BlackHole 16ch
+monitor bridge: BlackHole 16ch -> MacBook Proのスピーカー
+route note: Chrome/YouTube audio reaches BlackHole 16ch for translation and Open-Loopback monitor bridge returns it to the physical speaker
 lane map: 私=local mic -> self lane; 相手=remote audio/playback -> remote lane
 env file: /Users/tachibanashuuta/LocalWork/Code/realtime-translator/.env
 dev url: http://localhost:3002
 meeting:device-selection-smoke: {"status":"ok","laneContract":"私=physical mic; 相手=loopback playback",...}
+meeting:monitor:smoke: {"status":"ok","bridgeContract":"Chrome/Meet output -> BlackHole input -> physical monitor"}
 meeting:route-snapshot --dry-run: contains app url / translator mic / translator remote / lane map / audio device tables
 meeting:prepare-smoke --dry-run: contains paired route snapshot, smoke evidence paths, and prefilled app url / translator mic / translator remote / local preflight
 meeting:evidence-check-smoke: {"status":"ok","pendingDetected":true,"scopeOptionValueNotFilePath":true,"weakEvidenceRejected":true,"prefilledSetupRendered":true,...}

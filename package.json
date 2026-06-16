@@ -27,7 +27,12 @@
     "meeting:system-env-smoke": "node scripts/meeting-system-env-smoke.mjs",
     "meeting:secret-scan": "node scripts/meeting-secret-scan.mjs",
     "meeting:session-env-smoke": "node scripts/session-env-smoke.mjs",
-    "meeting:verify": "pnpm meeting:preflight && pnpm meeting:device-selection-smoke && pnpm meeting:evidence-check-smoke && pnpm meeting:backfill-evidence-smoke && pnpm meeting:append-runtime-evidence-smoke && pnpm meeting:record-observation-smoke && pnpm meeting:proof-status-smoke && pnpm meeting:next-proof-smoke && pnpm meeting:system-env-smoke && pnpm meeting:secret-scan && pnpm lint && pnpm build && pnpm meeting:session-env-smoke"
+    "meeting:monitor": "node scripts/meeting-monitor-bridge.mjs",
+    "meeting:monitor:start": "node scripts/meeting-monitor-bridge.mjs start",
+    "meeting:monitor:stop": "node scripts/meeting-monitor-bridge.mjs stop",
+    "meeting:monitor:status": "node scripts/meeting-monitor-bridge.mjs status",
+    "meeting:monitor:smoke": "node scripts/meeting-monitor-bridge-smoke.mjs",
+    "meeting:verify": "pnpm meeting:preflight && pnpm meeting:device-selection-smoke && pnpm meeting:monitor:smoke && pnpm meeting:evidence-check-smoke && pnpm meeting:backfill-evidence-smoke && pnpm meeting:append-runtime-evidence-smoke && pnpm meeting:record-observation-smoke && pnpm meeting:proof-status-smoke && pnpm meeting:next-proof-smoke && pnpm meeting:system-env-smoke && pnpm meeting:secret-scan && pnpm lint && pnpm build && pnpm meeting:session-env-smoke"
   },
   "dependencies": {
     "@next/env": "16.2.7",
